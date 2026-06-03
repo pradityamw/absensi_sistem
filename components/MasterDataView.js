@@ -4,15 +4,20 @@ export default function MasterDataView({
     masterStudents, 
     masterTeachers, 
     onAddStudent, 
+    onAddStudents,
     onDeleteStudent, 
     onResetStudents, 
     onAddTeacher, 
+    onAddTeachers,
     onDeleteTeacher, 
     onResetTeachers,
     onEditStudentClick,
+    onBulkAssignTeacher,
+    onBulkDeleteStudents,
     showToast 
 }) {
     const [activeSubTab, setActiveSubTab] = useState('siswa'); // 'siswa' | 'guru'
+    const [selectedSiswa, setSelectedSiswa] = useState([]); // Array of student indices selected
 
     // Form states for Student
     const [sFirstName, setSFirstName] = useState('');
@@ -70,10 +75,7 @@ export default function MasterDataView({
         });
 
         try {
-            for (const s of newStudents) {
-                await onAddStudent(s, false); // batch mode
-            }
-            await onResetStudents(true); // force reload after batch insertions
+            await onAddStudents(newStudents);
             setSBulkText('');
             showToast(`${newStudents.length} siswa berhasil diimpor!`);
         } catch (err) {
@@ -112,10 +114,7 @@ export default function MasterDataView({
         });
 
         try {
-            for (const t of newTeachers) {
-                await onAddTeacher(t, false);
-            }
-            await onResetTeachers(true);
+            await onAddTeachers(newTeachers);
             setTBulkText('');
             showToast(`${newTeachers.length} guru berhasil diimpor!`);
         } catch (err) {
@@ -241,7 +240,7 @@ export default function MasterDataView({
                                     id="btnResetMaster"
                                     onClick={() => {
                                         setConfirmConfig({
-                                            message: "Apakah Anda yakin ingin mereset master siswa ke data default?",
+                                            message: "Apakah Anda yakin ingin menghapus semua data master siswa?",
                                             onConfirm: () => {
                                                 onResetStudents();
                                                 setConfirmConfig(null);
@@ -249,15 +248,141 @@ export default function MasterDataView({
                                         });
                                     }}
                                 >
-                                    Reset ke Default
+                                    Hapus Semua Data
                                 </button>
                             </div>
                             
                             <div className="card-body scrollable-list-container">
+                                {masterStudents.length > 0 && (
+                                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px', paddingLeft: '4px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+                                        <input 
+                                            type="checkbox" 
+                                            id="selectAllSiswa"
+                                            style={{ width: '18px', height: '18px', marginRight: '8px', cursor: 'pointer' }}
+                                            checked={selectedSiswa.length === masterStudents.length}
+                                            onChange={(e) => {
+                                                if (e.target.checked) {
+                                                    setSelectedSiswa(masterStudents.map((_, i) => i));
+                                                } else {
+                                                    setSelectedSiswa([]);
+                                                }
+                                            }}
+                                        />
+                                        <label htmlFor="selectAllSiswa" style={{ fontSize: '14px', cursor: 'pointer', color: 'var(--text-secondary)', fontWeight: '500' }}>
+                                            Pilih Semua Siswa
+                                        </label>
+                                    </div>
+                                )}
+
+                                {selectedSiswa.length > 0 && (
+                                    <div className="bulk-actions-bar" style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        backgroundColor: 'var(--bg-secondary)',
+                                        border: '1px solid var(--border-color)',
+                                        borderRadius: 'var(--radius-md)',
+                                        padding: '12px 16px',
+                                        marginBottom: '16px',
+                                        gap: '12px',
+                                        flexWrap: 'wrap'
+                                    }}>
+                                        <span style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '14px' }}>
+                                            {selectedSiswa.length} siswa terpilih
+                                        </span>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                            <select 
+                                                className="form-input" 
+                                                style={{ margin: 0, padding: '6px 12px', width: 'auto', fontSize: '14px', height: '36px' }}
+                                                id="bulkTeacherSelect"
+                                            >
+                                                <option value="">-- Hubungkan ke Guru --</option>
+                                                <option value="none">Kosongkan (Belum Diatur)</option>
+                                                {masterTeachers.map((t, idx) => (
+                                                    <option key={idx} value={t.firstName}>
+                                                        {t.firstName} {t.lastName || ''}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <button 
+                                                type="button" 
+                                                className="btn btn-primary"
+                                                style={{ margin: 0, padding: '8px 16px', fontSize: '14px', height: '36px', display: 'flex', alignItems: 'center' }}
+                                                onClick={async () => {
+                                                    const selectEl = document.getElementById('bulkTeacherSelect');
+                                                    const selectedTeacher = selectEl.value;
+                                                    if (selectedTeacher === "") {
+                                                        showToast("Silakan pilih guru pengajar terlebih dahulu.");
+                                                        return;
+                                                    }
+                                                    const teacherVal = selectedTeacher === 'none' ? '' : selectedTeacher;
+                                                    
+                                                    setConfirmConfig({
+                                                        message: `Apakah Anda yakin ingin memindahkan ${selectedSiswa.length} siswa terpilih ke kelas Guru ${teacherVal || '(Belum Diatur)'}?`,
+                                                        onConfirm: async () => {
+                                                            try {
+                                                                await onBulkAssignTeacher(selectedSiswa, teacherVal);
+                                                                setSelectedSiswa([]);
+                                                            } catch (err) {
+                                                                showToast("Gagal memperbarui guru siswa: " + err.message);
+                                                            }
+                                                            setConfirmConfig(null);
+                                                        }
+                                                    });
+                                                }}
+                                            >
+                                                Simpan Guru
+                                            </button>
+                                            <button 
+                                                type="button" 
+                                                className="btn btn-danger"
+                                                style={{ margin: 0, padding: '8px 16px', fontSize: '14px', height: '36px', display: 'flex', alignItems: 'center' }}
+                                                onClick={() => {
+                                                    setConfirmConfig({
+                                                        message: `Apakah Anda yakin ingin menghapus ${selectedSiswa.length} siswa terpilih dari database master?`,
+                                                        onConfirm: async () => {
+                                                            try {
+                                                                await onBulkDeleteStudents(selectedSiswa);
+                                                                setSelectedSiswa([]);
+                                                            } catch (err) {
+                                                                showToast("Gagal menghapus siswa: " + err.message);
+                                                            }
+                                                            setConfirmConfig(null);
+                                                        }
+                                                    });
+                                                }}
+                                            >
+                                                Hapus Terpilih
+                                            </button>
+                                            <button 
+                                                type="button" 
+                                                className="btn btn-secondary"
+                                                style={{ margin: 0, padding: '8px 12px', fontSize: '14px', height: '36px', display: 'flex', alignItems: 'center' }}
+                                                onClick={() => setSelectedSiswa([])}
+                                            >
+                                                Batal
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="student-list">
                                     {masterStudents.map((s, idx) => (
-                                        <div className="student-item" key={idx}>
-                                            <div className="student-info">
+                                        <div className="student-item" key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                            <input 
+                                                type="checkbox" 
+                                                className="form-checkbox"
+                                                style={{ width: '18px', height: '18px', cursor: 'pointer', flexShrink: 0 }}
+                                                checked={selectedSiswa.includes(idx)}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setSelectedSiswa([...selectedSiswa, idx]);
+                                                    } else {
+                                                        setSelectedSiswa(selectedSiswa.filter(i => i !== idx));
+                                                    }
+                                                }}
+                                            />
+                                            <div className="student-info" style={{ flex: 1 }}>
                                                 <span className="student-name">{s.firstName} {s.lastName || ''}</span>
                                                 <div className="student-badges">
                                                     <span className="badge badge-teacher">Guru: {s.teacherName || '(Belum Diatur)'}</span>
@@ -368,7 +493,7 @@ export default function MasterDataView({
                                     id="btnResetMasterTeachers"
                                     onClick={() => {
                                         setConfirmConfig({
-                                            message: "Apakah Anda yakin ingin mereset master guru ke data default?",
+                                            message: "Apakah Anda yakin ingin menghapus semua data master guru?",
                                             onConfirm: () => {
                                                 onResetTeachers();
                                                 setConfirmConfig(null);
@@ -376,7 +501,7 @@ export default function MasterDataView({
                                         });
                                     }}
                                 >
-                                    Reset ke Default
+                                    Hapus Semua Data
                                 </button>
                             </div>
                             

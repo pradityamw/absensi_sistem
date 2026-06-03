@@ -194,11 +194,11 @@ export default function Home() {
             try {
                 setMasterStudents(JSON.parse(savedSiswa));
             } catch (e) {
-                setMasterStudents(defaultStudents);
+                setMasterStudents([]);
             }
         } else {
-            localStorage.setItem('absensi_master_siswa', JSON.stringify(defaultStudents));
-            setMasterStudents(defaultStudents);
+            localStorage.setItem('absensi_master_siswa', JSON.stringify([]));
+            setMasterStudents([]);
         }
 
         // B. Master Teachers
@@ -207,11 +207,11 @@ export default function Home() {
             try {
                 setMasterTeachers(JSON.parse(savedGuru));
             } catch (e) {
-                setMasterTeachers(defaultTeachers);
+                setMasterTeachers([]);
             }
         } else {
-            localStorage.setItem('absensi_master_guru', JSON.stringify(defaultTeachers));
-            setMasterTeachers(defaultTeachers);
+            localStorage.setItem('absensi_master_guru', JSON.stringify([]));
+            setMasterTeachers([]);
         }
     }, []);
 
@@ -223,17 +223,15 @@ export default function Home() {
             try {
                 // A. Load Master Students
                 let students = await SupabaseDb.getMasterStudents();
-                if (!students || students.length === 0) {
-                    students = [...defaultStudents];
-                    await SupabaseDb.saveMasterStudents(students);
+                if (students === null) {
+                    students = [];
                 }
                 setMasterStudents(students);
 
                 // B. Load Master Teachers
                 let teachers = await SupabaseDb.getMasterTeachers();
-                if (!teachers || teachers.length === 0) {
-                    teachers = [...defaultTeachers];
-                    await SupabaseDb.saveMasterTeachers(teachers);
+                if (teachers === null) {
+                    teachers = [];
                 }
                 setMasterTeachers(teachers);
             } catch (e) {
@@ -314,7 +312,7 @@ export default function Home() {
         } finally {
             setIsLoading(false);
         }
-    }, [currentDate, masterStudents, masterStudentNames, syncMethod, indonesianMonths, showToast]);
+    }, [currentDate, masterStudents, syncMethod, indonesianMonths, showToast]);
 
     // Fetch attendance when date, masterStudentNames, or activeTab changes
     useEffect(() => {
@@ -493,6 +491,19 @@ export default function Home() {
         }
     };
 
+    const handleAddStudents = async (newStudentsList) => {
+        const updatedList = [...masterStudents, ...newStudentsList];
+        setMasterStudents(updatedList);
+
+        if (syncMethod === 'supabase') {
+            await SupabaseDb.saveMasterStudents(updatedList);
+        } else {
+            localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
+        }
+
+        await loadMasterLists();
+    };
+
     const handleSaveStudentEdit = async (index, updatedStudent) => {
         const oldStudent = masterStudents[index];
         const updatedList = [...masterStudents];
@@ -542,17 +553,72 @@ export default function Home() {
         await loadMasterLists();
     };
 
-    const handleResetStudents = async (batchMode = false) => {
+    const handleBulkAssignTeacher = async (studentIndices, teacherName) => {
+        const updatedList = masterStudents.map((s, idx) => {
+            if (studentIndices.includes(idx)) {
+                return { ...s, teacherName: teacherName };
+            }
+            return s;
+        });
+        setMasterStudents(updatedList);
+
         if (syncMethod === 'supabase') {
-            await SupabaseDb.saveMasterStudents(defaultStudents);
+            try {
+                await SupabaseDb.saveMasterStudents(updatedList);
+                
+                // Propagate teacher changes to existing attendance records in Supabase
+                for (const idx of studentIndices) {
+                    const oldStudent = masterStudents[idx];
+                    const oldTeacherName = (oldStudent?.teacherName || '').trim();
+                    if (oldTeacherName.toLowerCase() !== teacherName.toLowerCase()) {
+                        const studentFullName = `${oldStudent.firstName} ${oldStudent.lastName}`.trim();
+                        await SupabaseDb.updateAttendanceTeacher(
+                            studentFullName,
+                            oldTeacherName || 'Hendra',
+                            teacherName
+                        );
+                    }
+                }
+            } catch (err) {
+                console.error("Gagal menyimpan edit massal siswa:", err);
+                showToast("Gagal menyimpan edit massal ke Supabase: " + err.message);
+            }
         } else {
-            localStorage.setItem('absensi_master_siswa', JSON.stringify(defaultStudents));
+            localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
         }
 
-        if (!batchMode) {
-            showToast("Master siswa berhasil direset ke default.");
-            await loadMasterLists();
+        showToast(`Berhasil memperbarui kelas pengajar untuk ${studentIndices.length} siswa.`);
+        await loadMasterLists();
+    };
+
+    const handleBulkDeleteStudents = async (studentIndices) => {
+        const updatedList = masterStudents.filter((_, idx) => !studentIndices.includes(idx));
+        setMasterStudents(updatedList);
+
+        if (syncMethod === 'supabase') {
+            try {
+                await SupabaseDb.saveMasterStudents(updatedList);
+            } catch (err) {
+                console.error("Gagal menyimpan penghapusan massal siswa:", err);
+                showToast("Gagal menghapus siswa di Supabase: " + err.message);
+            }
+        } else {
+            localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
         }
+
+        showToast(`Berhasil menghapus ${studentIndices.length} siswa.`);
+        await loadMasterLists();
+    };
+
+    const handleResetStudents = async () => {
+        if (syncMethod === 'supabase') {
+            await SupabaseDb.saveMasterStudents([]);
+        } else {
+            localStorage.setItem('absensi_master_siswa', JSON.stringify([]));
+        }
+
+        showToast("Semua data master siswa berhasil dihapus.");
+        await loadMasterLists();
     };
 
     /* ==========================================================================
@@ -574,6 +640,19 @@ export default function Home() {
         }
     };
 
+    const handleAddTeachers = async (newTeachersList) => {
+        const updatedList = [...masterTeachers, ...newTeachersList];
+        setMasterTeachers(updatedList);
+
+        if (syncMethod === 'supabase') {
+            await SupabaseDb.saveMasterTeachers(updatedList);
+        } else {
+            localStorage.setItem('absensi_master_guru', JSON.stringify(updatedList));
+        }
+
+        await loadMasterLists();
+    };
+
     const handleDeleteTeacher = async (index) => {
         const updatedList = masterTeachers.filter((_, idx) => idx !== index);
         setMasterTeachers(updatedList);
@@ -588,17 +667,15 @@ export default function Home() {
         await loadMasterLists();
     };
 
-    const handleResetTeachers = async (batchMode = false) => {
+    const handleResetTeachers = async () => {
         if (syncMethod === 'supabase') {
-            await SupabaseDb.saveMasterTeachers(defaultTeachers);
+            await SupabaseDb.saveMasterTeachers([]);
         } else {
-            localStorage.setItem('absensi_master_guru', JSON.stringify(defaultTeachers));
+            localStorage.setItem('absensi_master_guru', JSON.stringify([]));
         }
 
-        if (!batchMode) {
-            showToast("Master pengajar berhasil direset ke default.");
-            await loadMasterLists();
-        }
+        showToast("Semua data master pengajar berhasil dihapus.");
+        await loadMasterLists();
     };
 
     /* ==========================================================================
@@ -702,12 +779,16 @@ export default function Home() {
                             masterStudents={masterStudents}
                             masterTeachers={masterTeachers}
                             onAddStudent={handleAddStudent}
+                            onAddStudents={handleAddStudents}
                             onDeleteStudent={handleDeleteStudent}
                             onResetStudents={handleResetStudents}
                             onAddTeacher={handleAddTeacher}
+                            onAddTeachers={handleAddTeachers}
                             onDeleteTeacher={handleDeleteTeacher}
                             onResetTeachers={handleResetTeachers}
                             onEditStudentClick={(idx) => setEditingStudentIdx(idx)}
+                            onBulkAssignTeacher={handleBulkAssignTeacher}
+                            onBulkDeleteStudents={handleBulkDeleteStudents}
                             showToast={showToast}
                         />
                     )}
