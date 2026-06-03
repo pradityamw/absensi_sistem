@@ -84,6 +84,7 @@ export default function Home() {
     const [toastMessage, setToastMessage] = useState('');
     const [toastActive, setToastActive] = useState(false);
     const [theme, setTheme] = useState('light');
+    const [isInitialized, setIsInitialized] = useState(false);
 
     // 6. Modals
     const [editingCell, setEditingCell] = useState(null); // { studentName, day, hours, teacher, classType }
@@ -164,6 +165,7 @@ export default function Home() {
                 GoogleSheetsSync.init(defaultSheetsConfig);
             }
             setSyncMethod('supabase');
+            setIsInitialized(true);
         });
 
         return () => {
@@ -245,8 +247,9 @@ export default function Home() {
         }
     }, [syncMethod, loadSimulatedMasterLists]);
 
-    // Load master lists on syncMethod change
+    // Load master lists on syncMethod change or initialization completion
     useEffect(() => {
+        if (!isInitialized) return;
         let active = true;
         Promise.resolve().then(() => {
             if (active) loadMasterLists();
@@ -254,7 +257,7 @@ export default function Home() {
         return () => {
             active = false;
         };
-    }, [loadMasterLists]);
+    }, [loadMasterLists, isInitialized]);
 
     /* ==========================================================================
        LOAD ATTENDANCE REGISTER
