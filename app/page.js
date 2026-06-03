@@ -343,11 +343,13 @@ export default function Home() {
         }
     }, [currentDate, masterStudents, loadAttendanceData, activeTab]);
 
-    const captureUndoState = async (day) => {
-        const yearVal = currentDate.getFullYear();
-        const monthIdx = currentDate.getMonth();
+    const captureUndoState = async (day, customYear, customMonthIndex) => {
+        const yearVal = customYear !== undefined ? customYear : currentDate.getFullYear();
+        const monthIdx = customMonthIndex !== undefined ? customMonthIndex : currentDate.getMonth();
         let oldRows = [];
         let oldDayValues = [];
+        
+        const targetSheetName = `${indonesianMonths[monthIdx]} ${yearVal}`;
 
         try {
             if (syncMethod === 'supabase' && SupabaseDb.client) {
@@ -358,7 +360,7 @@ export default function Home() {
                     .eq('attendance_date', dateStr);
                 oldRows = data || [];
             } else if (syncMethod === 'simulated') {
-                const key = `sim_attendance_${sheetsConfig.sheetName.replace(/\s+/g, '_')}`;
+                const key = `sim_attendance_${targetSheetName.replace(/\s+/g, '_')}`;
                 const localGrid = JSON.parse(localStorage.getItem(key) || '[]');
                 oldDayValues = localGrid.map(row => ({
                     studentName: row.NAMA,
@@ -374,7 +376,7 @@ export default function Home() {
             year: yearVal,
             monthIndex: monthIdx,
             day: day,
-            sheetName: sheetsConfig.sheetName,
+            sheetName: targetSheetName,
             oldSupabaseRows: oldRows,
             oldSimulatedValues: oldDayValues,
             description: `Absensi Tanggal ${day} ${indonesianMonths[monthIdx]} ${yearVal}`
@@ -447,15 +449,24 @@ export default function Home() {
     /* ==========================================================================
        SAVE ATTENDANCE FOR A DAY
        ========================================================================== */
-    const handleSaveAttendance = async (day, presentObjects, selectedTeacher = 'Hendra') => {
+    const handleSaveAttendance = async (dateOrDay, presentObjects, selectedTeacher = 'Hendra') => {
         setIsLoading(true);
         try {
-            const yearVal = currentDate.getFullYear();
-            const monthIdx = currentDate.getMonth();
+            let yearVal, monthIdx, day;
+            if (dateOrDay instanceof Date) {
+                yearVal = dateOrDay.getFullYear();
+                monthIdx = dateOrDay.getMonth();
+                day = dateOrDay.getDate();
+            } else {
+                yearVal = currentDate.getFullYear();
+                monthIdx = currentDate.getMonth();
+                day = dateOrDay;
+            }
+
             const sheetTitle = `${indonesianMonths[monthIdx]} ${yearVal}`;
             GoogleSheetsSync.config.sheetName = sheetTitle;
 
-            await captureUndoState(day);
+            await captureUndoState(day, yearVal, monthIdx);
 
             // Filter master students belonging to the selected teacher (case-insensitive)
             const filteredStudents = masterStudents.filter(s => {

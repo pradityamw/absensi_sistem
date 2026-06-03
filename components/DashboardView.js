@@ -22,11 +22,12 @@ export default function DashboardView({
     // Filter master students based on defaultTeacher (selected in dropdown)
     const filteredMasterStudents = masterStudents.filter(s => {
         const registeredTeacher = (s.teacherName || '').trim().toLowerCase();
+        const teachers = registeredTeacher.split(',').map(t => t.trim().toLowerCase());
         const defTeacherLower = defaultTeacher.toLowerCase();
         if (defTeacherLower === 'hendra') {
-            return registeredTeacher === 'hendra' || registeredTeacher === '';
+            return teachers.includes('hendra') || registeredTeacher === '' || (teachers.length === 1 && teachers[0] === '');
         } else {
-            return registeredTeacher === defTeacherLower;
+            return teachers.includes(defTeacherLower);
         }
     });
 
@@ -96,6 +97,16 @@ export default function DashboardView({
             return;
         }
 
+        // Try to parse the date from the pasted text
+        const parsedDate = AttendanceParser.parseDateFromText(trimmed, currentDate);
+        const targetDate = parsedDate || currentDate;
+
+        if (parsedDate) {
+            // Update calendar state to match parsed date
+            setCurrentDate(parsedDate);
+            showToast(`Mendeteksi tanggal dari teks: ${parsedDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}`);
+        }
+
         const parsed = AttendanceParser.parseText(trimmed, defaultTeacher);
         const matched = AttendanceParser.matchStudents(parsed, filteredMasterStudents);
         
@@ -103,7 +114,7 @@ export default function DashboardView({
 
         setIsSaving(true);
         try {
-            await onSaveAttendance(currentDate.getDate(), matched.matched, defaultTeacher);
+            await onSaveAttendance(targetDate, matched.matched, defaultTeacher);
         } catch (err) {
             console.error(err);
             showToast("Gagal menyimpan absensi: " + err.message);
