@@ -89,6 +89,8 @@ export default function Home() {
     // 6. Modals
     const [editingCell, setEditingCell] = useState(null); // { studentName, day, hours, teacher, classType }
     const [editingStudentIdx, setEditingStudentIdx] = useState(null); // index of student being edited
+    const [insertStudentIndex, setInsertStudentIndex] = useState(null); // index to insert student in the middle
+    const [undoStack, setUndoStack] = useState([]); // Undo history stack
 
     const showToast = useCallback((msg) => {
         setToastMessage(msg);
@@ -150,21 +152,29 @@ export default function Home() {
             const subConf = SupabaseDb.loadConfig();
             setSupabaseConfig(subConf);
             SupabaseDb.init(subConf);
+            const hasSupabase = !!SupabaseDb.client;
 
             // D. Load Sheets Config
             const savedSheets = localStorage.getItem('absensi_sheets_config');
+            let initialMethod = hasSupabase ? 'supabase' : 'simulated';
             if (savedSheets) {
                 try {
                     const parsed = JSON.parse(savedSheets);
                     setSheetsConfig(prev => ({ ...prev, ...parsed }));
                     GoogleSheetsSync.init(parsed);
+                    if (parsed.method) {
+                        initialMethod = parsed.method;
+                    }
                 } catch (e) {
                     console.error("Failed to parse Sheets config", e);
                 }
             } else {
                 GoogleSheetsSync.init(defaultSheetsConfig);
             }
-            setSyncMethod('supabase');
+            if (initialMethod === 'supabase' && !hasSupabase) {
+                initialMethod = 'simulated';
+            }
+            setSyncMethod(initialMethod);
             setIsInitialized(true);
         });
 
@@ -223,17 +233,20 @@ export default function Home() {
         if (currentSync === 'supabase') {
             setIsLoading(true);
             try {
+                if (!SupabaseDb.client) {
+                    throw new Error("Supabase client not initialized");
+                }
                 // A. Load Master Students
                 let students = await SupabaseDb.getMasterStudents();
                 if (students === null) {
-                    students = [];
+                    throw new Error("Gagal mengambil data siswa master");
                 }
                 setMasterStudents(students);
 
                 // B. Load Master Teachers
                 let teachers = await SupabaseDb.getMasterTeachers();
                 if (teachers === null) {
-                    teachers = [];
+                    throw new Error("Gagal mengambil data guru master");
                 }
                 setMasterTeachers(teachers);
             } catch (e) {
@@ -330,6 +343,107 @@ export default function Home() {
         }
     }, [currentDate, masterStudents, loadAttendanceData, activeTab]);
 
+    const captureUndoState = async (day) => {
+        const yearVal = currentDate.getFullYear();
+        const monthIdx = currentDate.getMonth();
+        let oldRows = [];
+        let oldDayValues = [];
+
+        try {
+            if (syncMethod === 'supabase' && SupabaseDb.client) {
+                const dateStr = `${yearVal}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const { data } = await SupabaseDb.client
+                    .from('attendance_records')
+                    .select('*')
+                    .eq('attendance_date', dateStr);
+                oldRows = data || [];
+            } else if (syncMethod === 'simulated') {
+                const key = `sim_attendance_${sheetsConfig.sheetName.replace(/\s+/g, '_')}`;
+                const localGrid = JSON.parse(localStorage.getItem(key) || '[]');
+                oldDayValues = localGrid.map(row => ({
+                    studentName: row.NAMA,
+                    cell: row[day.toString()]
+                }));
+            }
+        } catch (err) {
+            console.error("Failed to capture undo state:", err);
+        }
+
+        const undoAction = {
+            syncMethod: syncMethod,
+            year: yearVal,
+            monthIndex: monthIdx,
+            day: day,
+            sheetName: sheetsConfig.sheetName,
+            oldSupabaseRows: oldRows,
+            oldSimulatedValues: oldDayValues,
+            description: `Absensi Tanggal ${day} ${indonesianMonths[monthIdx]} ${yearVal}`
+        };
+        setUndoStack(prev => [...prev, undoAction]);
+    };
+
+    const handleUndo = async () => {
+        if (undoStack.length === 0) return;
+        const action = undoStack[undoStack.length - 1];
+        setIsLoading(true);
+
+        try {
+            if (action.syncMethod === 'supabase' && SupabaseDb.client) {
+                const dateStr = `${action.year}-${String(action.monthIndex + 1).padStart(2, '0')}-${String(action.day).padStart(2, '0')}`;
+                
+                // 1. Delete all records for that date
+                const { error: deleteError } = await SupabaseDb.client
+                    .from('attendance_records')
+                    .delete()
+                    .eq('attendance_date', dateStr);
+                if (deleteError) throw deleteError;
+
+                // 2. Insert old records back if any
+                if (action.oldSupabaseRows.length > 0) {
+                    const { error: insertError } = await SupabaseDb.client
+                        .from('attendance_records')
+                        .insert(action.oldSupabaseRows);
+                    if (insertError) throw insertError;
+                }
+            } else if (action.syncMethod === 'simulated') {
+                const key = `sim_attendance_${action.sheetName.replace(/\s+/g, '_')}`;
+                const localGrid = JSON.parse(localStorage.getItem(key) || '[]');
+                const valueMap = new Map(action.oldSimulatedValues.map(v => [v.studentName.toLowerCase(), v.cell]));
+
+                localGrid.forEach(row => {
+                    const keyLower = row.NAMA.toLowerCase();
+                    if (valueMap.has(keyLower)) {
+                        row[action.day.toString()] = valueMap.get(keyLower);
+                    }
+                });
+
+                // Recalculate row totals
+                localGrid.forEach(row => {
+                    let total = 0;
+                    for (let d = 1; d <= 31; d++) {
+                        const cell = row[d.toString()];
+                        if (cell && typeof cell === 'object') {
+                            total += parseFloat(cell.value) || 0;
+                        } else if (cell && (typeof cell === 'number' || typeof cell === 'string')) {
+                            total += parseFloat(cell) || 0;
+                        }
+                    }
+                    row.TOTAL = total;
+                });
+                localStorage.setItem(key, JSON.stringify(localGrid));
+            }
+
+            setUndoStack(prev => prev.slice(0, -1));
+            showToast(`Membatalkan tindakan: Revert ${action.description}`);
+            await loadAttendanceData();
+        } catch (e) {
+            console.error("Gagal melakukan undo:", e);
+            showToast("Gagal melakukan undo: " + e.message);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     /* ==========================================================================
        SAVE ATTENDANCE FOR A DAY
        ========================================================================== */
@@ -341,14 +455,17 @@ export default function Home() {
             const sheetTitle = `${indonesianMonths[monthIdx]} ${yearVal}`;
             GoogleSheetsSync.config.sheetName = sheetTitle;
 
+            await captureUndoState(day);
+
             // Filter master students belonging to the selected teacher (case-insensitive)
             const filteredStudents = masterStudents.filter(s => {
                 const regTeacher = (s.teacherName || '').trim().toLowerCase();
+                const teachers = regTeacher.split(',').map(t => t.trim().toLowerCase());
                 const selTeacherLower = selectedTeacher.toLowerCase();
                 if (selTeacherLower === 'hendra') {
-                    return regTeacher === 'hendra' || regTeacher === '';
+                    return teachers.includes('hendra') || regTeacher === '' || (teachers.length === 1 && teachers[0] === '');
                 } else {
-                    return regTeacher === selTeacherLower;
+                    return teachers.includes(selTeacherLower);
                 }
             });
 
@@ -374,6 +491,8 @@ export default function Home() {
        ========================================================================== */
     const handleCellSave = async (editDetails) => {
         const { studentName, day, status, hours, teacher, classType, moveStudent, moveTeacher } = editDetails;
+        
+        await captureUndoState(day);
         
         let localData = [...attendanceData];
         let targetRow = localData.find(r => r.NAMA.toLowerCase() === studentName.toLowerCase());
@@ -504,6 +623,27 @@ export default function Home() {
             localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
         }
 
+        await loadMasterLists();
+    };
+
+    const handleSaveStudentInsert = async (index, newStudent) => {
+        const updatedList = [...masterStudents];
+        updatedList.splice(index, 0, newStudent);
+        setMasterStudents(updatedList);
+
+        if (syncMethod === 'supabase') {
+            try {
+                await SupabaseDb.saveMasterStudents(updatedList);
+            } catch (err) {
+                console.error("Gagal menyisipkan siswa:", err);
+                showToast("Gagal menyisipkan siswa ke Supabase: " + err.message);
+            }
+        } else {
+            localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
+        }
+
+        setInsertStudentIndex(null);
+        showToast(`Siswa ${newStudent.firstName} berhasil disisipkan!`);
         await loadMasterLists();
     };
 
@@ -746,6 +886,8 @@ export default function Home() {
                     currentDate={currentDate}
                     setCurrentDate={setCurrentDate}
                     setMobileMenuOpen={setMobileMenuOpen}
+                    undoStack={undoStack}
+                    onUndo={handleUndo}
                 />
 
                 <div className="view-content">
@@ -774,6 +916,8 @@ export default function Home() {
                             onRefresh={loadAttendanceData}
                             isLoading={isLoading}
                             showToast={showToast}
+                            onEditStudentClick={(idx) => setEditingStudentIdx(idx)}
+                            onInsertStudentClick={(idx) => setInsertStudentIndex(idx)}
                         />
                     )}
 
@@ -793,6 +937,7 @@ export default function Home() {
                             onBulkAssignTeacher={handleBulkAssignTeacher}
                             onBulkDeleteStudents={handleBulkDeleteStudents}
                             showToast={showToast}
+                            onInsertStudentClick={(idx) => setInsertStudentIndex(idx)}
                         />
                     )}
 
@@ -830,7 +975,19 @@ export default function Home() {
                     studentIndex={editingStudentIdx}
                     masterTeachers={masterTeachers}
                     onSave={handleSaveStudentEdit}
+                    onDelete={handleDeleteStudent}
                     onClose={() => setEditingStudentIdx(null)}
+                />
+            )}
+
+            {insertStudentIndex !== null && (
+                <StudentEditModal 
+                    studentData={null}
+                    studentIndex={insertStudentIndex}
+                    masterTeachers={masterTeachers}
+                    onSave={handleSaveStudentInsert}
+                    onClose={() => setInsertStudentIndex(null)}
+                    isInsert={true}
                 />
             )}
         </div>

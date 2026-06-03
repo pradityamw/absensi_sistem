@@ -20,7 +20,9 @@ export default function HistoryView({
     onCellClick, 
     onRefresh,
     isLoading,
-    showToast 
+    showToast,
+    onEditStudentClick,
+    onInsertStudentClick
 }) {
     const [searchQuery, setSearchQuery] = useState('');
     const [teacherFilter, setTeacherFilter] = useState('all');
@@ -136,7 +138,8 @@ export default function HistoryView({
                 PERCENT_HARI: `${rate}%`,
                 LAST_PRESENT: lastPresentText,
                 lastPresentDay: lastPresentDay,
-                STUDENT_TEACHER: studentTeacher
+                STUDENT_TEACHER: studentTeacher,
+                ALIAS: studentObj ? (studentObj.alias || '') : ''
             };
         });
     }, [attendanceData, prevMonthData, masterStudents, teacherFilter, daysInMonth, month]);
@@ -185,14 +188,14 @@ export default function HistoryView({
         
         // Filter student rows by teacher filter
         if (teacherFilter !== 'all') {
-            const studentRegTeacher = (row.STUDENT_TEACHER || '').trim();
+            const studentRegTeacher = (row.STUDENT_TEACHER || '').trim().toLowerCase();
+            const teachers = studentRegTeacher.split(',').map(t => t.trim().toLowerCase());
             if (teacherFilter.toLowerCase() === 'hendra') {
-                // Hendra is default: matches Hendra or empty teacherName
-                const isHendra = studentRegTeacher.toLowerCase() === 'hendra' || studentRegTeacher === '';
+                // Hendra is default: matches Hendra, empty, or if Hendra is one of the teachers
+                const isHendra = teachers.includes('hendra') || studentRegTeacher === '';
                 if (!isHendra) return false;
             } else {
-                // For other teachers (Ani, Budi), must match exactly
-                if (studentRegTeacher.toLowerCase() !== teacherFilter.toLowerCase()) {
+                if (!teachers.includes(teacherFilter.toLowerCase())) {
                     return false;
                 }
             }
@@ -344,8 +347,51 @@ export default function HistoryView({
                             {filteredRows.length > 0 ? (
                                 filteredRows.map((row, index) => (
                                     <tr key={index}>
-                                        <td>{index + 1}</td>
-                                        <td>{row.NAMA}</td>
+                                        <td style={{ display: 'flex', alignItems: 'center', gap: '4px', borderRight: 'none', justifyContent: 'center' }}>
+                                            <span>{index + 1}</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => onInsertStudentClick(row.NO)}
+                                                style={{
+                                                    padding: '1px 5px',
+                                                    fontSize: '11px',
+                                                    lineHeight: 1,
+                                                    borderRadius: '4px',
+                                                    cursor: 'pointer',
+                                                    backgroundColor: 'var(--success-light, #ecfdf5)',
+                                                    color: 'var(--success, #059669)',
+                                                    border: '1px solid var(--success-border, #a7f3d0)',
+                                                    fontWeight: 'bold',
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    marginLeft: '4px'
+                                                }}
+                                                title={`Sisipkan murid baru di bawah nomor ${index + 1}`}
+                                            >
+                                                +
+                                            </button>
+                                        </td>
+                                        <td>
+                                            <button
+                                                type="button"
+                                                onClick={() => onEditStudentClick(row.NO - 1)}
+                                                style={{
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    color: 'var(--primary)',
+                                                    textDecoration: 'underline',
+                                                    cursor: 'pointer',
+                                                    fontWeight: '600',
+                                                    padding: 0,
+                                                    textAlign: 'left'
+                                                }}
+                                                title="Klik untuk Edit Data Siswa"
+                                            >
+                                                {row.NAMA}
+                                                {row.ALIAS && <span style={{ color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 'normal', textDecoration: 'none', display: 'inline-block', marginLeft: '6px' }}>({row.ALIAS})</span>}
+                                            </button>
+                                        </td>
                                         <td style={{ color: 'var(--text-secondary)' }}>{row.BULAN_LALU} kelas</td>
                                         
                                         {Array.from({ length: daysInMonth }, (_, dIdx) => {

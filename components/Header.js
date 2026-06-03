@@ -2,7 +2,9 @@ export default function Header({
     activeTab, 
     currentDate, 
     setCurrentDate, 
-    setMobileMenuOpen 
+    setMobileMenuOpen,
+    undoStack = [],
+    onUndo
 }) {
     // Determine title based on active tab
     const getPageTitle = () => {
@@ -73,6 +75,43 @@ export default function Header({
                 <h1 className="page-title" id="pageMainTitle">{getPageTitle()}</h1>
             </div>
             <div className="topbar-right" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <style>{`
+                    @keyframes pulse-light {
+                        0%, 100% { transform: scale(1); box-shadow: var(--shadow-sm); }
+                        50% { transform: scale(0.98); box-shadow: 0 0 8px rgba(217, 119, 6, 0.4); }
+                    }
+                `}</style>
+                {onUndo && undoStack && undoStack.length > 0 && (
+                    <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={onUndo}
+                        style={{
+                            height: '38px',
+                            padding: '0 16px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            backgroundColor: '#fffbeb',
+                            borderColor: '#d97706',
+                            color: '#b45309',
+                            fontWeight: 600,
+                            borderRadius: 'var(--radius-md)',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            transition: 'all 0.2s ease',
+                            animation: 'pulse-light 2.5s infinite',
+                            margin: 0
+                        }}
+                        title={`Undo: ${undoStack[undoStack.length - 1].description}`}
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: 'scaleX(-1)' }}>
+                            <path d="M3 7v6h6" />
+                            <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+                        </svg>
+                        <span>Undo ({undoStack.length})</span>
+                    </button>
+                )}
                 <div className="form-group" style={{ marginBottom: 0 }}>
                     <input 
                         type="month" 

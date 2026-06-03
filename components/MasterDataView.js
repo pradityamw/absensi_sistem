@@ -14,53 +14,57 @@ export default function MasterDataView({
     onEditStudentClick,
     onBulkAssignTeacher,
     onBulkDeleteStudents,
-    showToast 
+    showToast,
+    onInsertStudentClick // Add this!
 }) {
     const [activeSubTab, setActiveSubTab] = useState('siswa'); // 'siswa' | 'guru'
     const [selectedSiswa, setSelectedSiswa] = useState([]); // Array of student indices selected
-
+ 
     // Form states for Student
     const [sFirstName, setSFirstName] = useState('');
     const [sLastName, setSLastName] = useState('');
     const [sQuota, setSQuota] = useState(8);
-    const [sTeacher, setSTeacher] = useState('');
+    const [sTeachers, setSTeachers] = useState([]); // Array of selected teacher names
+    const [sAlias, setSAlias] = useState(''); // State for alias
     const [sBulkText, setSBulkText] = useState('');
-
+ 
     // Form states for Teacher
     const [tFirstName, setTFirstName] = useState('');
     const [tLastName, setTLastName] = useState('');
     const [tBulkText, setTBulkText] = useState('');
-
+ 
     // Custom confirm dialog state
     const [confirmConfig, setConfirmConfig] = useState(null); // { message, onConfirm }
-
+ 
     // Handlers for Students
     const handleAddStudentSubmit = async (e) => {
         e.preventDefault();
         const fName = sFirstName.trim();
         if (!fName) return;
-
+ 
         try {
             await onAddStudent({
                 firstName: fName,
                 lastName: sLastName.trim(),
                 quota: parseInt(sQuota) || 8,
-                teacherName: sTeacher
+                teacherName: sTeachers.join(', '),
+                alias: sAlias.trim()
             });
             setSFirstName('');
             setSLastName('');
             setSQuota(8);
-            setSTeacher('');
+            setSTeachers([]);
+            setSAlias('');
         } catch (err) {
             showToast("Gagal menambah siswa: " + err.message);
         }
     };
-
+ 
     const handleBulkStudentSubmit = async (e) => {
         e.preventDefault();
         const lines = sBulkText.split('\n').map(l => l.trim()).filter(Boolean);
         if (lines.length === 0) return;
-
+ 
         const newStudents = lines.map(line => {
             // Split name into first and last
             const parts = line.split(/\s+/);
@@ -70,10 +74,11 @@ export default function MasterDataView({
                 firstName,
                 lastName,
                 quota: 8,
-                teacherName: ''
+                teacherName: '',
+                alias: ''
             };
         });
-
+ 
         try {
             await onAddStudents(newStudents);
             setSBulkText('');
@@ -82,13 +87,13 @@ export default function MasterDataView({
             showToast("Gagal mengimpor siswa: " + err.message);
         }
     };
-
+ 
     // Handlers for Teachers
     const handleAddTeacherSubmit = async (e) => {
         e.preventDefault();
         const fName = tFirstName.trim();
         if (!fName) return;
-
+ 
         try {
             await onAddTeacher({
                 firstName: fName,
@@ -100,19 +105,19 @@ export default function MasterDataView({
             showToast("Gagal menambah guru: " + err.message);
         }
     };
-
+ 
     const handleBulkTeacherSubmit = async (e) => {
         e.preventDefault();
         const lines = tBulkText.split('\n').map(l => l.trim()).filter(Boolean);
         if (lines.length === 0) return;
-
+ 
         const newTeachers = lines.map(line => {
             const parts = line.split(/\s+/);
             const firstName = parts[0] || '';
             const lastName = parts.slice(1).join(' ') || '';
             return { firstName, lastName };
         });
-
+ 
         try {
             await onAddTeachers(newTeachers);
             setTBulkText('');
@@ -121,7 +126,7 @@ export default function MasterDataView({
             showToast("Gagal mengimpor guru: " + err.message);
         }
     };
-
+ 
     return (
         <div>
             {/* Tab Navigation */}
@@ -141,7 +146,7 @@ export default function MasterDataView({
                     Master Guru
                 </button>
             </div>
-
+ 
             {/* Siswa Tab Content */}
             {activeSubTab === 'siswa' && (
                 <div className="master-tab-content">
@@ -179,6 +184,17 @@ export default function MasterDataView({
                                         />
                                     </div>
                                     <div className="form-group">
+                                        <label htmlFor="newStudentAlias" className="form-label">Alias (Nama Panggilan)</label>
+                                        <input 
+                                            type="text" 
+                                            className="form-input" 
+                                            placeholder="Nama yang dipakai di daftar absen..." 
+                                            value={sAlias}
+                                            onChange={(e) => setSAlias(e.target.value)}
+                                            autoComplete="off" 
+                                        />
+                                    </div>
+                                    <div className="form-group">
                                         <label htmlFor="newStudentQuota" className="form-label">Jatah Bulanan (Sesi)</label>
                                         <input 
                                             type="number" 
@@ -191,19 +207,33 @@ export default function MasterDataView({
                                         />
                                     </div>
                                     <div className="form-group">
-                                        <label htmlFor="newStudentTeacher" className="form-label">Guru Pengajar (Teacher)</label>
-                                        <select 
-                                            className="form-input"
-                                            value={sTeacher}
-                                            onChange={(e) => setSTeacher(e.target.value)}
-                                        >
-                                            <option value="">-- Hubungkan Guru (Belum Diatur) --</option>
-                                            {masterTeachers.map((t, idx) => (
-                                                <option key={idx} value={t.firstName}>
-                                                    {t.firstName} {t.lastName || ''}
-                                                </option>
-                                            ))}
-                                        </select>
+                                        <label className="form-label">Guru Pengajar (Bisa pilih lebih dari 1)</label>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '120px', overflowY: 'auto', border: '1px solid var(--border-color)', padding: '10px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--bg-card)' }}>
+                                            {masterTeachers.map((t, idx) => {
+                                                const tName = t.firstName;
+                                                const isChecked = sTeachers.includes(tName);
+                                                return (
+                                                    <label key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', margin: 0, padding: '2px 0' }}>
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={isChecked}
+                                                            onChange={(e) => {
+                                                                if (e.target.checked) {
+                                                                    setSTeachers([...sTeachers, tName]);
+                                                                } else {
+                                                                    setSTeachers(sTeachers.filter(name => name !== tName));
+                                                                }
+                                                            }}
+                                                            style={{ cursor: 'pointer', width: '15px', height: '15px' }}
+                                                        />
+                                                        <span style={{ color: 'var(--text-primary)' }}>{tName} {t.lastName || ''}</span>
+                                                    </label>
+                                                );
+                                            })}
+                                            {masterTeachers.length === 0 && (
+                                                <span className="text-muted" style={{ fontSize: '12px' }}>Tidak ada data guru master.</span>
+                                            )}
+                                        </div>
                                     </div>
                                     <button type="submit" className="btn btn-primary btn-block">Tambah Siswa</button>
                                 </form>
@@ -382,8 +412,35 @@ export default function MasterDataView({
                                                     }
                                                 }}
                                             />
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: '45px', flexShrink: 0 }}>
+                                                <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '600' }}>{idx + 1}</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => onInsertStudentClick(idx + 1)}
+                                                    style={{
+                                                        padding: '1px 5px',
+                                                        fontSize: '11px',
+                                                        lineHeight: 1,
+                                                        borderRadius: '4px',
+                                                        cursor: 'pointer',
+                                                        backgroundColor: 'var(--success-light, #ecfdf5)',
+                                                        color: 'var(--success, #059669)',
+                                                        border: '1px solid var(--success-border, #a7f3d0)',
+                                                        fontWeight: 'bold',
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                    }}
+                                                    title={`Sisipkan murid baru di bawah nomor ${idx + 1}`}
+                                                >
+                                                    +
+                                                </button>
+                                            </div>
                                             <div className="student-info" style={{ flex: 1 }}>
-                                                <span className="student-name">{s.firstName} {s.lastName || ''}</span>
+                                                <span className="student-name">
+                                                    {s.firstName} {s.lastName || ''}
+                                                    {s.alias && <span style={{ color: 'var(--text-secondary)', fontSize: '13px', fontWeight: 'normal', marginLeft: '6px' }}>({s.alias})</span>}
+                                                </span>
                                                 <div className="student-badges">
                                                     <span className="badge badge-teacher">Guru: {s.teacherName || '(Belum Diatur)'}</span>
                                                     <span className="badge badge-quota">Jatah: {s.quota} sesi</span>
