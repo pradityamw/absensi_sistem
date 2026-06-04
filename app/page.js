@@ -125,10 +125,22 @@ export default function Home() {
         if (typeof window === 'undefined') return;
 
         let active = true;
-        Promise.resolve().then(() => {
+
+        const initializeApp = async () => {
+            // A. Fetch config from runtime API
+            let serverConfig = { supabaseUrl: '', supabaseAnonKey: '' };
+            try {
+                const res = await fetch('/api/config');
+                if (res.ok) {
+                    serverConfig = await res.json();
+                }
+            } catch (e) {
+                console.error("Failed to load dynamic environment config", e);
+            }
+
             if (!active) return;
 
-            // A. Load Session
+            // B. Load Session
             const savedUser = sessionStorage.getItem('absensi_current_user');
             if (savedUser) {
                 try {
@@ -139,7 +151,7 @@ export default function Home() {
             }
             setCheckedAuth(true);
 
-            // B. Load Theme
+            // C. Load Theme
             const savedTheme = localStorage.getItem('absensi_theme') || 'light';
             setTheme(savedTheme);
             if (savedTheme === 'dark') {
@@ -148,13 +160,22 @@ export default function Home() {
                 document.body.classList.remove('dark-theme');
             }
 
-            // C. Load Supabase Config & Initialize
+            // D. Load Supabase Config & Initialize
             const subConf = SupabaseDb.loadConfig();
-            setSupabaseConfig(subConf);
-            SupabaseDb.init(subConf);
+
+            // Prioritize runtime server config if available
+            const finalSupabaseUrl = serverConfig.supabaseUrl || subConf.supabaseUrl || '';
+            const finalSupabaseAnonKey = serverConfig.supabaseAnonKey || subConf.supabaseAnonKey || '';
+            const mergedSubConf = {
+                supabaseUrl: finalSupabaseUrl,
+                supabaseAnonKey: finalSupabaseAnonKey
+            };
+
+            setSupabaseConfig(mergedSubConf);
+            SupabaseDb.init(mergedSubConf);
             const hasSupabase = !!SupabaseDb.client;
 
-            // D. Load Sheets Config
+            // E. Load Sheets Config
             const savedSheets = localStorage.getItem('absensi_sheets_config');
             let initialMethod = hasSupabase ? 'supabase' : 'simulated';
             if (savedSheets) {
@@ -176,7 +197,9 @@ export default function Home() {
             }
             setSyncMethod(initialMethod);
             setIsInitialized(true);
-        });
+        };
+
+        initializeApp();
 
         return () => {
             active = false;
@@ -610,62 +633,75 @@ export default function Home() {
        ========================================================================== */
     const handleAddStudent = async (newStudent, reload = true) => {
         const updatedList = [...masterStudents, newStudent];
-        setMasterStudents(updatedList);
-
-        if (syncMethod === 'supabase') {
-            await SupabaseDb.saveMasterStudents(updatedList);
-        } else {
-            localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
-        }
-
-        if (reload) {
-            showToast(`Siswa ${newStudent.firstName} ditambahkan ke database master.`);
-            await loadMasterLists();
+        setIsLoading(true);
+        try {
+            if (syncMethod === 'supabase') {
+                await SupabaseDb.saveMasterStudents(updatedList);
+            } else {
+                localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
+            }
+            setMasterStudents(updatedList);
+            if (reload) {
+                showToast(`Siswa ${newStudent.firstName} ditambahkan ke database master.`);
+                await loadMasterLists();
+            }
+        } catch (err) {
+            console.error("Gagal menambahkan siswa:", err);
+            showToast("Gagal menyimpan siswa ke Supabase: " + err.message);
+        } finally {
+            setIsLoading(false);
         }
     };
 
     const handleAddStudents = async (newStudentsList) => {
         const updatedList = [...masterStudents, ...newStudentsList];
-        setMasterStudents(updatedList);
-
-        if (syncMethod === 'supabase') {
-            await SupabaseDb.saveMasterStudents(updatedList);
-        } else {
-            localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
+        setIsLoading(true);
+        try {
+            if (syncMethod === 'supabase') {
+                await SupabaseDb.saveMasterStudents(updatedList);
+            } else {
+                localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
+            }
+            setMasterStudents(updatedList);
+            showToast(`Berhasil mengimpor ${newStudentsList.length} siswa.`);
+            await loadMasterLists();
+        } catch (err) {
+            console.error("Gagal mengimpor siswa:", err);
+            showToast("Gagal mengimpor siswa ke Supabase: " + err.message);
+        } finally {
+            setIsLoading(false);
         }
-
-        await loadMasterLists();
     };
 
     const handleSaveStudentInsert = async (index, newStudent) => {
         const updatedList = [...masterStudents];
         updatedList.splice(index, 0, newStudent);
-        setMasterStudents(updatedList);
-
-        if (syncMethod === 'supabase') {
-            try {
+        setIsLoading(true);
+        try {
+            if (syncMethod === 'supabase') {
                 await SupabaseDb.saveMasterStudents(updatedList);
-            } catch (err) {
-                console.error("Gagal menyisipkan siswa:", err);
-                showToast("Gagal menyisipkan siswa ke Supabase: " + err.message);
+            } else {
+                localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
             }
-        } else {
-            localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
+            setMasterStudents(updatedList);
+            setInsertStudentIndex(null);
+            showToast(`Siswa ${newStudent.firstName} berhasil disisipkan!`);
+            await loadMasterLists();
+        } catch (err) {
+            console.error("Gagal menyisipkan siswa:", err);
+            showToast("Gagal menyisipkan siswa ke Supabase: " + err.message);
+        } finally {
+            setIsLoading(false);
         }
-
-        setInsertStudentIndex(null);
-        showToast(`Siswa ${newStudent.firstName} berhasil disisipkan!`);
-        await loadMasterLists();
     };
 
     const handleSaveStudentEdit = async (index, updatedStudent) => {
         const oldStudent = masterStudents[index];
         const updatedList = [...masterStudents];
         updatedList[index] = updatedStudent;
-        setMasterStudents(updatedList);
-
-        if (syncMethod === 'supabase') {
-            try {
+        setIsLoading(true);
+        try {
+            if (syncMethod === 'supabase') {
                 await SupabaseDb.saveMasterStudents(updatedList);
                 
                 // If teacher changed, propagate update to existing attendance records in Supabase
@@ -680,31 +716,39 @@ export default function Home() {
                         newTeacherName
                     );
                 }
-            } catch (err) {
-                console.error("Gagal menyimpan edit siswa:", err);
-                showToast("Gagal menyimpan edit siswa ke Supabase: " + err.message);
+            } else {
+                localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
             }
-        } else {
-            localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
+            setMasterStudents(updatedList);
+            setEditingStudentIdx(null);
+            showToast(`Siswa ${updatedStudent.firstName} berhasil diedit!`);
+            await loadMasterLists();
+        } catch (err) {
+            console.error("Gagal menyimpan edit siswa:", err);
+            showToast("Gagal menyimpan edit siswa ke Supabase: " + err.message);
+        } finally {
+            setIsLoading(false);
         }
-
-        setEditingStudentIdx(null);
-        showToast(`Siswa ${updatedStudent.firstName} berhasil diedit!`);
-        await loadMasterLists();
     };
 
     const handleDeleteStudent = async (index) => {
         const updatedList = masterStudents.filter((_, idx) => idx !== index);
-        setMasterStudents(updatedList);
-
-        if (syncMethod === 'supabase') {
-            await SupabaseDb.saveMasterStudents(updatedList);
-        } else {
-            localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
+        setIsLoading(true);
+        try {
+            if (syncMethod === 'supabase') {
+                await SupabaseDb.saveMasterStudents(updatedList);
+            } else {
+                localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
+            }
+            setMasterStudents(updatedList);
+            showToast("Siswa berhasil dihapus dari database master.");
+            await loadMasterLists();
+        } catch (err) {
+            console.error("Gagal menghapus siswa:", err);
+            showToast("Gagal menghapus siswa di Supabase: " + err.message);
+        } finally {
+            setIsLoading(false);
         }
-
-        showToast("Siswa berhasil dihapus dari database master.");
-        await loadMasterLists();
     };
 
     const handleBulkAssignTeacher = async (studentIndices, teacherName) => {
@@ -714,10 +758,9 @@ export default function Home() {
             }
             return s;
         });
-        setMasterStudents(updatedList);
-
-        if (syncMethod === 'supabase') {
-            try {
+        setIsLoading(true);
+        try {
+            if (syncMethod === 'supabase') {
                 await SupabaseDb.saveMasterStudents(updatedList);
                 
                 // Propagate teacher changes to existing attendance records in Supabase
@@ -733,46 +776,57 @@ export default function Home() {
                         );
                     }
                 }
-            } catch (err) {
-                console.error("Gagal menyimpan edit massal siswa:", err);
-                showToast("Gagal menyimpan edit massal ke Supabase: " + err.message);
+            } else {
+                localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
             }
-        } else {
-            localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
+            setMasterStudents(updatedList);
+            showToast(`Berhasil memperbarui kelas pengajar untuk ${studentIndices.length} siswa.`);
+            await loadMasterLists();
+        } catch (err) {
+            console.error("Gagal menyimpan edit massal siswa:", err);
+            showToast("Gagal menyimpan edit massal ke Supabase: " + err.message);
+        } finally {
+            setIsLoading(false);
         }
-
-        showToast(`Berhasil memperbarui kelas pengajar untuk ${studentIndices.length} siswa.`);
-        await loadMasterLists();
     };
 
     const handleBulkDeleteStudents = async (studentIndices) => {
         const updatedList = masterStudents.filter((_, idx) => !studentIndices.includes(idx));
-        setMasterStudents(updatedList);
-
-        if (syncMethod === 'supabase') {
-            try {
+        setIsLoading(true);
+        try {
+            if (syncMethod === 'supabase') {
                 await SupabaseDb.saveMasterStudents(updatedList);
-            } catch (err) {
-                console.error("Gagal menyimpan penghapusan massal siswa:", err);
-                showToast("Gagal menghapus siswa di Supabase: " + err.message);
+            } else {
+                localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
             }
-        } else {
-            localStorage.setItem('absensi_master_siswa', JSON.stringify(updatedList));
+            setMasterStudents(updatedList);
+            showToast(`Berhasil menghapus ${studentIndices.length} siswa.`);
+            await loadMasterLists();
+        } catch (err) {
+            console.error("Gagal menyimpan penghapusan massal siswa:", err);
+            showToast("Gagal menghapus siswa di Supabase: " + err.message);
+        } finally {
+            setIsLoading(false);
         }
-
-        showToast(`Berhasil menghapus ${studentIndices.length} siswa.`);
-        await loadMasterLists();
     };
 
     const handleResetStudents = async () => {
-        if (syncMethod === 'supabase') {
-            await SupabaseDb.saveMasterStudents([]);
-        } else {
-            localStorage.setItem('absensi_master_siswa', JSON.stringify([]));
+        setIsLoading(true);
+        try {
+            if (syncMethod === 'supabase') {
+                await SupabaseDb.saveMasterStudents([]);
+            } else {
+                localStorage.setItem('absensi_master_siswa', JSON.stringify([]));
+            }
+            setMasterStudents([]);
+            showToast("Semua data master siswa berhasil dihapus.");
+            await loadMasterLists();
+        } catch (err) {
+            console.error("Gagal menghapus data master siswa:", err);
+            showToast("Gagal menghapus data master siswa di Supabase: " + err.message);
+        } finally {
+            setIsLoading(false);
         }
-
-        showToast("Semua data master siswa berhasil dihapus.");
-        await loadMasterLists();
     };
 
     /* ==========================================================================
@@ -780,56 +834,83 @@ export default function Home() {
        ========================================================================== */
     const handleAddTeacher = async (newTeacher, reload = true) => {
         const updatedList = [...masterTeachers, newTeacher];
-        setMasterTeachers(updatedList);
-
-        if (syncMethod === 'supabase') {
-            await SupabaseDb.saveMasterTeachers(updatedList);
-        } else {
-            localStorage.setItem('absensi_master_guru', JSON.stringify(updatedList));
-        }
-
-        if (reload) {
-            showToast(`Guru ${newTeacher.firstName} ditambahkan ke database master.`);
-            await loadMasterLists();
+        setIsLoading(true);
+        try {
+            if (syncMethod === 'supabase') {
+                await SupabaseDb.saveMasterTeachers(updatedList);
+            } else {
+                localStorage.setItem('absensi_master_guru', JSON.stringify(updatedList));
+            }
+            setMasterTeachers(updatedList);
+            if (reload) {
+                showToast(`Guru ${newTeacher.firstName} ditambahkan ke database master.`);
+                await loadMasterLists();
+            }
+        } catch (err) {
+            console.error("Gagal menambahkan guru:", err);
+            showToast("Gagal menyimpan guru ke Supabase: " + err.message);
+        } finally {
+            setIsLoading(false);
         }
     };
 
     const handleAddTeachers = async (newTeachersList) => {
         const updatedList = [...masterTeachers, ...newTeachersList];
-        setMasterTeachers(updatedList);
-
-        if (syncMethod === 'supabase') {
-            await SupabaseDb.saveMasterTeachers(updatedList);
-        } else {
-            localStorage.setItem('absensi_master_guru', JSON.stringify(updatedList));
+        setIsLoading(true);
+        try {
+            if (syncMethod === 'supabase') {
+                await SupabaseDb.saveMasterTeachers(updatedList);
+            } else {
+                localStorage.setItem('absensi_master_guru', JSON.stringify(updatedList));
+            }
+            setMasterTeachers(updatedList);
+            showToast(`Berhasil mengimpor ${newTeachersList.length} guru.`);
+            await loadMasterLists();
+        } catch (err) {
+            console.error("Gagal mengimpor guru:", err);
+            showToast("Gagal mengimpor guru ke Supabase: " + err.message);
+        } finally {
+            setIsLoading(false);
         }
-
-        await loadMasterLists();
     };
 
     const handleDeleteTeacher = async (index) => {
         const updatedList = masterTeachers.filter((_, idx) => idx !== index);
-        setMasterTeachers(updatedList);
-
-        if (syncMethod === 'supabase') {
-            await SupabaseDb.saveMasterTeachers(updatedList);
-        } else {
-            localStorage.setItem('absensi_master_guru', JSON.stringify(updatedList));
+        setIsLoading(true);
+        try {
+            if (syncMethod === 'supabase') {
+                await SupabaseDb.saveMasterTeachers(updatedList);
+            } else {
+                localStorage.setItem('absensi_master_guru', JSON.stringify(updatedList));
+            }
+            setMasterTeachers(updatedList);
+            showToast("Guru berhasil dihapus dari database master.");
+            await loadMasterLists();
+        } catch (err) {
+            console.error("Gagal menghapus guru:", err);
+            showToast("Gagal menghapus guru di Supabase: " + err.message);
+        } finally {
+            setIsLoading(false);
         }
-
-        showToast("Guru berhasil dihapus dari database master.");
-        await loadMasterLists();
     };
 
     const handleResetTeachers = async () => {
-        if (syncMethod === 'supabase') {
-            await SupabaseDb.saveMasterTeachers([]);
-        } else {
-            localStorage.setItem('absensi_master_guru', JSON.stringify([]));
+        setIsLoading(true);
+        try {
+            if (syncMethod === 'supabase') {
+                await SupabaseDb.saveMasterTeachers([]);
+            } else {
+                localStorage.setItem('absensi_master_guru', JSON.stringify([]));
+            }
+            setMasterTeachers([]);
+            showToast("Semua data master pengajar berhasil dihapus.");
+            await loadMasterLists();
+        } catch (err) {
+            console.error("Gagal menghapus data master guru:", err);
+            showToast("Gagal menghapus data master guru di Supabase: " + err.message);
+        } finally {
+            setIsLoading(false);
         }
-
-        showToast("Semua data master pengajar berhasil dihapus.");
-        await loadMasterLists();
     };
 
     /* ==========================================================================
