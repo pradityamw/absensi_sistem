@@ -1457,6 +1457,9 @@ a {
     box-shadow: var(--shadow-premium);
     width: 100%;
     max-width: 460px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
     animation: scaleIn 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }
@@ -1467,6 +1470,7 @@ a {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-shrink: 0;
 }
 
 .modal-title {
@@ -1492,6 +1496,8 @@ a {
 
 .modal-body {
     padding: 24px;
+    overflow-y: auto;
+    flex: 1;
 }
 
 @keyframes scaleIn {

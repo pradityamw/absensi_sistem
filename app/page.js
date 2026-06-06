@@ -675,7 +675,7 @@ export default function Home() {
             GoogleSheetsSync.config.sheetName = sheetTitle;
 
             if (syncMethod === 'supabase') {
-                await SupabaseDb.saveAttendanceRecords(yearVal, monthIdx, day, dayPresentObjects, masterStudents);
+                await SupabaseDb.saveAttendanceRecords(yearVal, monthIdx, day, dayPresentObjects, masterStudents, undefined, true);
             } else {
                 await GoogleSheetsSync.saveAttendance(day, dayPresentObjects, masterStudents);
             }
