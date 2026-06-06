@@ -227,26 +227,40 @@ export default function Home() {
         const savedSiswa = localStorage.getItem('absensi_master_siswa');
         if (savedSiswa) {
             try {
-                setMasterStudents(JSON.parse(savedSiswa));
+                const parsed = JSON.parse(savedSiswa);
+                if (parsed && parsed.length > 0) {
+                    setMasterStudents(parsed);
+                } else {
+                    localStorage.setItem('absensi_master_siswa', JSON.stringify(defaultStudents));
+                    setMasterStudents(defaultStudents);
+                }
             } catch (e) {
-                setMasterStudents([]);
+                localStorage.setItem('absensi_master_siswa', JSON.stringify(defaultStudents));
+                setMasterStudents(defaultStudents);
             }
         } else {
-            localStorage.setItem('absensi_master_siswa', JSON.stringify([]));
-            setMasterStudents([]);
+            localStorage.setItem('absensi_master_siswa', JSON.stringify(defaultStudents));
+            setMasterStudents(defaultStudents);
         }
 
         // B. Master Teachers
         const savedGuru = localStorage.getItem('absensi_master_guru');
         if (savedGuru) {
             try {
-                setMasterTeachers(JSON.parse(savedGuru));
+                const parsed = JSON.parse(savedGuru);
+                if (parsed && parsed.length > 0) {
+                    setMasterTeachers(parsed);
+                } else {
+                    localStorage.setItem('absensi_master_guru', JSON.stringify(defaultTeachers));
+                    setMasterTeachers(defaultTeachers);
+                }
             } catch (e) {
-                setMasterTeachers([]);
+                localStorage.setItem('absensi_master_guru', JSON.stringify(defaultTeachers));
+                setMasterTeachers(defaultTeachers);
             }
         } else {
-            localStorage.setItem('absensi_master_guru', JSON.stringify([]));
-            setMasterTeachers([]);
+            localStorage.setItem('absensi_master_guru', JSON.stringify(defaultTeachers));
+            setMasterTeachers(defaultTeachers);
         }
     }, []);
 
@@ -264,12 +278,22 @@ export default function Home() {
                 if (students === null) {
                     throw new Error("Gagal mengambil data siswa master");
                 }
+                if (students.length === 0) {
+                    console.log("Database master_students is empty. Seeding defaults...");
+                    await SupabaseDb.saveMasterStudents(defaultStudents);
+                    students = defaultStudents;
+                }
                 setMasterStudents(students);
 
                 // B. Load Master Teachers
                 let teachers = await SupabaseDb.getMasterTeachers();
                 if (teachers === null) {
                     throw new Error("Gagal mengambil data guru master");
+                }
+                if (teachers.length === 0) {
+                    console.log("Database master_teachers is empty. Seeding defaults...");
+                    await SupabaseDb.saveMasterTeachers(defaultTeachers);
+                    teachers = defaultTeachers;
                 }
                 setMasterTeachers(teachers);
             } catch (e) {
