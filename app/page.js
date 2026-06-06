@@ -677,7 +677,7 @@ export default function Home() {
             if (syncMethod === 'supabase') {
                 await SupabaseDb.saveAttendanceRecords(yearVal, monthIdx, day, dayPresentObjects, masterStudents, undefined, true);
             } else {
-                await GoogleSheetsSync.saveAttendance(day, dayPresentObjects, masterStudents);
+                await GoogleSheetsSync.saveAttendance(day, dayPresentObjects, masterStudents, true);
             }
 
             showToast("Perubahan sel berhasil disimpan!");
