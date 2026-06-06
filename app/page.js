@@ -374,6 +374,14 @@ export default function Home() {
         
         const targetSheetName = `${indonesianMonths[monthIdx]} ${yearVal}`;
 
+        // Capture in-memory cell state for all students for local rollbacks (works for simulated, apps-script, direct-api)
+        if (attendanceData && attendanceData.length > 0) {
+            oldDayValues = attendanceData.map(row => ({
+                studentName: row.NAMA,
+                cell: row[day.toString()]
+            }));
+        }
+
         try {
             if (syncMethod === 'supabase' && SupabaseDb.client) {
                 const dateStr = `${yearVal}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -382,13 +390,6 @@ export default function Home() {
                     .select('*')
                     .eq('attendance_date', dateStr);
                 oldRows = data || [];
-            } else if (syncMethod === 'simulated') {
-                const key = `sim_attendance_${targetSheetName.replace(/\s+/g, '_')}`;
-                const localGrid = JSON.parse(localStorage.getItem(key) || '[]');
-                oldDayValues = localGrid.map(row => ({
-                    studentName: row.NAMA,
-                    cell: row[day.toString()]
-                }));
             }
         } catch (err) {
             console.error("Failed to capture undo state:", err);
@@ -423,11 +424,18 @@ export default function Home() {
                     .eq('attendance_date', dateStr);
                 if (deleteError) throw deleteError;
 
-                // 2. Insert old records back if any
+                // 2. Insert old records back if any, sanitizing to avoid writing auto-generated fields
                 if (action.oldSupabaseRows.length > 0) {
+                    const sanitizedRows = action.oldSupabaseRows.map(row => ({
+                        attendance_date: row.attendance_date,
+                        student_name: row.student_name,
+                        guru: row.guru,
+                        jam: row.jam,
+                        kelas: row.kelas
+                    }));
                     const { error: insertError } = await SupabaseDb.client
                         .from('attendance_records')
-                        .insert(action.oldSupabaseRows);
+                        .insert(sanitizedRows);
                     if (insertError) throw insertError;
                 }
             } else if (action.syncMethod === 'simulated') {
@@ -456,6 +464,36 @@ export default function Home() {
                     row.TOTAL = total;
                 });
                 localStorage.setItem(key, JSON.stringify(localGrid));
+            } else if (action.syncMethod === 'apps-script' || action.syncMethod === 'direct-api') {
+                // Reconstruct presentObjects from the captured oldDayValues
+                const presentObjects = [];
+                action.oldSimulatedValues.forEach(item => {
+                    const cell = item.cell;
+                    let val = 0;
+                    let guru = "Hendra";
+                    let kelas = "group";
+                    
+                    if (cell && typeof cell === 'object') {
+                        val = parseFloat(cell.value) || 0;
+                        guru = cell.guru || "Hendra";
+                        kelas = cell.kelas || "group";
+                    } else if (cell !== undefined && cell !== null && cell !== "") {
+                        val = parseFloat(cell) || 0;
+                    }
+                    
+                    if (val > 0) {
+                        presentObjects.push({
+                            name: item.studentName,
+                            guru,
+                            jam: val,
+                            kelas
+                        });
+                    }
+                });
+
+                // Set sheet config name and write
+                GoogleSheetsSync.config.sheetName = action.sheetName;
+                await GoogleSheetsSync.saveAttendance(action.day, presentObjects, masterStudents);
             }
 
             setUndoStack(prev => prev.slice(0, -1));
