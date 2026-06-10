@@ -9,6 +9,7 @@ import DashboardView from '../components/DashboardView';
 import HistoryView from '../components/HistoryView';
 import MasterDataView from '../components/MasterDataView';
 import UserManagementView from '../components/UserManagementView';
+import SettingsView from '../components/SettingsView';
 import LoginOverlay from '../components/LoginOverlay';
 import AttendanceEditModal from '../components/AttendanceEditModal';
 import StudentEditModal from '../components/StudentEditModal';
@@ -68,6 +69,7 @@ export default function Home() {
         supabaseUrl: '',
         supabaseAnonKey: ''
     });
+    const [dbError, setDbError] = useState(null);
     const [currentDate, setCurrentDate] = useState(() => {
         // Default to June 2026 to match template or today if preferred, 
         // let's use today's date but if it is 2026, keep it. 
@@ -174,16 +176,21 @@ export default function Home() {
             setSupabaseConfig(mergedSubConf);
             SupabaseDb.init(mergedSubConf);
             const hasSupabase = !!SupabaseDb.client;
+            if (!hasSupabase) {
+                setDbError("Kredensial database Supabase kosong atau tidak terdefinisi. Silakan konfigurasi di halaman Pengaturan.");
+            } else {
+                setDbError(null);
+            }
 
             // E. Load Sheets Config
             const savedSheets = localStorage.getItem('absensi_sheets_config');
-            let initialMethod = hasSupabase ? 'supabase' : 'simulated';
+            let initialMethod = 'supabase'; // Force Supabase sync method
             if (savedSheets) {
                 try {
                     const parsed = JSON.parse(savedSheets);
                     setSheetsConfig(prev => ({ ...prev, ...parsed }));
                     GoogleSheetsSync.init(parsed);
-                    if (parsed.method) {
+                    if (parsed.method && parsed.method !== 'simulated') {
                         initialMethod = parsed.method;
                     }
                 } catch (e) {
@@ -191,9 +198,6 @@ export default function Home() {
                 }
             } else {
                 GoogleSheetsSync.init(defaultSheetsConfig);
-            }
-            if (initialMethod === 'supabase' && !hasSupabase) {
-                initialMethod = 'simulated';
             }
             setSyncMethod(initialMethod);
             setIsInitialized(true);
@@ -296,9 +300,11 @@ export default function Home() {
                     teachers = defaultTeachers;
                 }
                 setMasterTeachers(teachers);
+                setDbError(null);
             } catch (e) {
-                console.error("Failed to load master lists from Supabase, loading simulated fallback.", e);
-                loadSimulatedMasterLists();
+                console.error("Failed to load master lists from Supabase:", e);
+                setDbError("Gagal memuat data dari Supabase: " + e.message);
+                showToast("Koneksi database bermasalah: " + e.message);
             } finally {
                 setIsLoading(false);
             }
@@ -992,10 +998,16 @@ export default function Home() {
         return await GoogleSheetsSync.testConnection();
     };
 
-    const handleSaveSupabaseConfig = (newConfig) => {
+    const handleSaveSupabaseConfig = async (newConfig) => {
         setSupabaseConfig(newConfig);
         localStorage.setItem('absensi_supabase_config', JSON.stringify(newConfig));
         SupabaseDb.init(newConfig);
+        if (SupabaseDb.client) {
+            setDbError(null);
+            await loadMasterLists('supabase');
+        } else {
+            setDbError("Kredensial database Supabase kosong atau tidak terdefinisi. Silakan konfigurasi di halaman Pengaturan.");
+        }
     };
 
     /* ==========================================================================
@@ -1045,6 +1057,23 @@ export default function Home() {
                 />
 
                 <div className="view-content">
+                    {dbError && (
+                        <div className="alert alert-danger" style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: 'var(--radius-md)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2" />
+                                    <line x1="12" y1="8" x2="12" y2="12" />
+                                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                                </svg>
+                                <span style={{ fontWeight: 500 }}>{dbError}</span>
+                            </div>
+                            {activeTab !== 'settings' && (
+                                <button className="btn btn-secondary btn-sm" onClick={() => setActiveTab('settings')} style={{ padding: '6px 12px', fontSize: '12px' }}>
+                                    Konfigurasi DB
+                                </button>
+                            )}
+                        </div>
+                    )}
                     {/* Render Views based on activeTab */}
                     {activeTab === 'dashboard' && (
                         <DashboardView 
@@ -1099,6 +1128,17 @@ export default function Home() {
 
                     {activeTab === 'users' && currentUser.role === 'admin' && (
                         <UserManagementView showToast={showToast} />
+                    )}
+
+                    {activeTab === 'settings' && currentUser && currentUser.role === 'admin' && (
+                        <SettingsView 
+                            supabaseConfig={supabaseConfig}
+                            onSaveSupabaseConfig={handleSaveSupabaseConfig}
+                            syncMethod={syncMethod}
+                            onSaveSheetsConfig={handleSaveSheetsConfig}
+                            sheetsConfig={sheetsConfig}
+                            showToast={showToast}
+                        />
                     )}
                 </div>
             </main>
