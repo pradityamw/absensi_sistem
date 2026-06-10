@@ -282,22 +282,12 @@ export default function Home() {
                 if (students === null) {
                     throw new Error("Gagal mengambil data siswa master");
                 }
-                if (students.length === 0) {
-                    console.log("Database master_students is empty. Seeding defaults...");
-                    await SupabaseDb.saveMasterStudents(defaultStudents);
-                    students = defaultStudents;
-                }
                 setMasterStudents(students);
 
                 // B. Load Master Teachers
                 let teachers = await SupabaseDb.getMasterTeachers();
                 if (teachers === null) {
                     throw new Error("Gagal mengambil data guru master");
-                }
-                if (teachers.length === 0) {
-                    console.log("Database master_teachers is empty. Seeding defaults...");
-                    await SupabaseDb.saveMasterTeachers(defaultTeachers);
-                    teachers = defaultTeachers;
                 }
                 setMasterTeachers(teachers);
                 setDbError(null);
