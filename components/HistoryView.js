@@ -144,26 +144,73 @@ export default function HistoryView({
         });
     }, [attendanceData, prevMonthData, masterStudents, teacherFilter, daysInMonth, month]);
 
-    // Average attendance rate of all rendered students
-    const avgAttendanceRate = useMemo(() => {
-        if (enrichedData.length === 0) return "0%";
-        const filtered = enrichedData.filter(row => {
-            if (searchQuery && !row.NAMA.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    // Filter by search query and teacher selection
+    const filteredRows = useMemo(() => {
+        return enrichedData.filter(row => {
+            if (searchQuery && !row.NAMA.toLowerCase().includes(searchQuery.toLowerCase())) {
+                return false;
+            }
+            
+            // Filter student rows by teacher filter
+            if (teacherFilter !== 'all') {
+                const studentRegTeacher = (row.STUDENT_TEACHER || '').trim().toLowerCase();
+                const teachers = studentRegTeacher.split(',').map(t => t.trim().toLowerCase());
+                
+                let isTeacherMatch = false;
+                if (teacherFilter.toLowerCase() === 'hendra') {
+                    // Hendra is default: matches Hendra, empty, or if Hendra is one of the teachers
+                    isTeacherMatch = teachers.includes('hendra') || studentRegTeacher === '';
+                } else {
+                    isTeacherMatch = teachers.includes(teacherFilter.toLowerCase());
+                }
+
+                // Check if student has at least one attendance cell in the current month taught by this teacher
+                let hasAttendanceWithTeacher = false;
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const cell = row[d.toString()];
+                    if (cell && typeof cell === 'object') {
+                        const cellGuru = cell.guru || "Hendra";
+                        if (cellGuru.toLowerCase() === teacherFilter.toLowerCase()) {
+                            hasAttendanceWithTeacher = true;
+                            break;
+                        }
+                    } else if (cell !== undefined && cell !== null && cell !== "") {
+                        // Primitive cell - implicitly Hendra
+                        if (teacherFilter.toLowerCase() === 'hendra') {
+                            hasAttendanceWithTeacher = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!isTeacherMatch && !hasAttendanceWithTeacher) {
+                    return false;
+                }
+            }
             return true;
         });
-        if (filtered.length === 0) return "0%";
+    }, [enrichedData, searchQuery, teacherFilter, daysInMonth]);
 
-        const sum = filtered.reduce((acc, row) => {
+    // Average attendance rate of all rendered students
+    const avgAttendanceRate = useMemo(() => {
+        if (filteredRows.length === 0) return "0%";
+
+        const sum = filteredRows.reduce((acc, row) => {
             const val = parseInt(row.PERCENT_HARI) || 0;
             return acc + val;
         }, 0);
-        return `${Math.round(sum / filtered.length)}%`;
-    }, [enrichedData, searchQuery]);
+        return `${Math.round(sum / filteredRows.length)}%`;
+    }, [filteredRows]);
 
     const handleExportExcel = async () => {
         try {
             const sheetTitle = `${indonesianMonthsFull[month]} ${year}`;
-            await AttendanceExporter.exportToExcel(sheetTitle, enrichedData);
+            // Re-map NO to be sequential for the filtered rows in the export file
+            const exportData = filteredRows.map((row, idx) => ({
+                ...row,
+                NO: idx + 1
+            }));
+            await AttendanceExporter.exportToExcel(sheetTitle, exportData);
             showToast("Excel berhasil diunduh!");
         } catch (e) {
             showToast("Gagal export Excel: " + e.message);
@@ -173,35 +220,17 @@ export default function HistoryView({
     const handleExportPdf = async () => {
         try {
             const sheetTitle = `${indonesianMonthsFull[month]} ${year}`;
-            await AttendanceExporter.exportToPdf(sheetTitle, enrichedData);
+            // Re-map NO to be sequential for the filtered rows in the export file
+            const exportData = filteredRows.map((row, idx) => ({
+                ...row,
+                NO: idx + 1
+            }));
+            await AttendanceExporter.exportToPdf(sheetTitle, exportData);
             showToast("PDF berhasil diunduh!");
         } catch (e) {
             showToast("Gagal export PDF: " + e.message);
         }
     };
-
-    // Filter by search query and teacher selection
-    const filteredRows = enrichedData.filter(row => {
-        if (searchQuery && !row.NAMA.toLowerCase().includes(searchQuery.toLowerCase())) {
-            return false;
-        }
-        
-        // Filter student rows by teacher filter
-        if (teacherFilter !== 'all') {
-            const studentRegTeacher = (row.STUDENT_TEACHER || '').trim().toLowerCase();
-            const teachers = studentRegTeacher.split(',').map(t => t.trim().toLowerCase());
-            if (teacherFilter.toLowerCase() === 'hendra') {
-                // Hendra is default: matches Hendra, empty, or if Hendra is one of the teachers
-                const isHendra = teachers.includes('hendra') || studentRegTeacher === '';
-                if (!isHendra) return false;
-            } else {
-                if (!teachers.includes(teacherFilter.toLowerCase())) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    });
 
     return (
         <div>
