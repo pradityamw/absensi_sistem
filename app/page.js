@@ -165,9 +165,9 @@ export default function Home() {
             // D. Load Supabase Config & Initialize
             const subConf = SupabaseDb.loadConfig();
 
-            // Prioritize runtime server config if available
-            const finalSupabaseUrl = serverConfig.supabaseUrl || subConf.supabaseUrl || '';
-            const finalSupabaseAnonKey = serverConfig.supabaseAnonKey || subConf.supabaseAnonKey || '';
+            // Prioritize client-saved localStorage config over runtime server config
+            const finalSupabaseUrl = subConf.supabaseUrl || serverConfig.supabaseUrl || '';
+            const finalSupabaseAnonKey = subConf.supabaseAnonKey || serverConfig.supabaseAnonKey || '';
             const mergedSubConf = {
                 supabaseUrl: finalSupabaseUrl,
                 supabaseAnonKey: finalSupabaseAnonKey
